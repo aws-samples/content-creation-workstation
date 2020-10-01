@@ -1,6 +1,6 @@
 # Content Creation Workstation AWS Sample
 
-Based off the [Creating a Virtual Workstation on AWS](https://studio-in-the-cloud-tutorials.s3-us-west-1.amazonaws.com/streaming-workstation/Creating+a+Virtual+Workstation+on+AWS.pdf), the following CloudFormation template has been create for deploying a Teradic Cloud Access Software on either CentOS 7  or Windows Server 2019 GPU-Enabled EC2 instances. The CloudFormation also provides the ability to provision Client VPN Endpoint if elected during deployment.
+Based off the [Creating a Virtual Workstation on AWS](https://studio-in-the-cloud-tutorials.s3-us-west-1.amazonaws.com/streaming-workstation/Creating+a+Virtual+Workstation+on+AWS.pdf), the following CloudFormation template has been created for deploying a Teradic Cloud Access Software on either CentOS 7 or Windows Server 2019 GPU-Enabled EC2 instances. The CloudFormation also provides the ability to provision Client VPN Endpoint if elected during deployment.
 
 Below are architecture diagrams of some deployable configurations. These are not all configurations as the solutions offers ability to chose VPC deployment location (new or existing), subnet (public or private), and Client VPN deployment(true or false). This results in 8 possible deployment combinations.
 
@@ -10,9 +10,7 @@ Below are architecture diagrams of some deployable configurations. These are not
 
 ## Notes
 
-Teradici CloudAccess Software is accessible using Marketplace AMI which costs $0.50/hr in addition to EC2 computing costs.
-
-EBS volumes are encrypted using the default `aws/ebs` KMS key.
+Teradici CloudAccess Software is accessible using Marketplace AMI which costs $0.50/hr in addition to EC2 computing costs. EBS volumes are encrypted using the default `aws/ebs` KMS key.
 
 ## Prerequisites
 
@@ -24,13 +22,11 @@ Please note that the template will be expecting your environment to be configure
 
 ## Deploying the Cloudformation Templates
 
-Please note that the below instructions is how to deploy using the AWS CLI. For more detailed instructions on how to deploy this template along with instructions on how to deploy using console, reference the [deployment guide](visual-effects-workstations-on-the-aws-cloud.docx).
+Please note that the below instructions is how to deploy using the AWS CLI. For more detailed instructions on how to deploy this template, reference the [deployment guide](documentation\Content-Creation-Workstation-Implementation-Guide.pdf).
 
-### 1. Specify correct parameter values for the CloudFormation Template
+### 1. Specify correct parameter values for the CloudFormation template
 
-#### a. Modify existing parameters file (deployment/parameters/test-param.json) or create your own
-
-Values must be specified for all the following parameters:
+Modify existing parameters file (deployment/parameters/test-param.json) or create your own. Values must be specified for all the following parameters:
 
   | Parameters                  | Details                                      | Default Value      |
   | --------------------------- |:---------------------------------------------|:-------------------|
@@ -57,20 +53,18 @@ Values must be specified for all the following parameters:
 
 ### 2. Prepare the CloudFormation template
 
-#### a. Package CloudFormation Template
-
-  Due to the use of Nested Templates in this solution, the parent template must be packaged in order to properly reference the child template(s). More information regarding CloudFormation packaging can be found [here.](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/using-cfn-cli-package.html)
+Due to the use of Nested Templates in this solution, the parent template must be packaged in order to properly reference the child template(s). More information regarding CloudFormation packaging can be found [here.](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/using-cfn-cli-package.html)
 
   Use the following command to package the template:
 
-    ```bash
-    aws cloudformation package --template-file ./deployment/content-creation-workstation.template --s3-bucket [desired s3 bucket for CF artifacts] --output-template-file ./deployment/outputs/vfx_packaged.yaml --region [AWS deployment region.Should be the same region where S3 bucket is located.]
-    ```
+```bash
+aws cloudformation package --template-file ./deployment/content-creation-workstation.template --s3-bucket [desired s3 bucket for CF artifacts] --output-template-file ./deployment/outputs/vfx_packaged.yaml --region [AWS deployment region, should be the same region where S3 bucket is located.]
+```
 
 ### 3. Create CloudFormation stack
 
   Use the following command to create the CloudFormation Stack:
 
-    ```bash
-    aws cloudformation create-stack --template-body file://deployment/outputs/vfx_packaged.yaml --parameters file://deployment/parameters/test-param.json --stack-name [desired stack name] --region [AWS Deployment Region] --capabilities CAPABILITY_AUTO_EXPAND CAPABILITY_IAM
-    ```
+```bash
+aws cloudformation create-stack --template-body file://deployment/outputs/vfx_packaged.yaml --parameters file://deployment/parameters/test-param.json --stack-name [desired stack name] --region [AWS Deployment Region] --capabilities CAPABILITY_AUTO_EXPAND CAPABILITY_IAM
+```
