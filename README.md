@@ -6,7 +6,7 @@ Below are architecture diagrams of some deployable configurations. These are not
 
 ## Content Creation Workstation deployed in public subnet in a new VPC
 
-![architecture diagram](source/images/Default_Architectural_Diagram.jpg "Diagram of default deployment")
+![architecture diagram](documentation/images/Default_Architectural_Diagram.jpg "Diagram of default deployment")
 
 ## Notes
 
@@ -22,7 +22,7 @@ Please note that the template will be expecting your environment to be configure
 
 ## Deploying the Cloudformation Templates
 
-Please note that the below instructions is how to deploy using the AWS CLI. For more detailed instructions on how to deploy this template, reference the [deployment guide](documentation\Content-Creation-Workstation-Implementation-Guide.pdf).
+Please note that the below instructions is how to deploy using the AWS CLI. For more detailed instructions on how to deploy this template, reference the [deployment guide](documentation/Content-Creation-Workstation-Implementation-Guide.pdf).
 
 ### 1. Specify correct parameter values for the CloudFormation template
 
