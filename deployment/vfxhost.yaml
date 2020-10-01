@@ -1,0 +1,647 @@
+# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'This template provisions EC2 instance with Teradici and Blender software installed.'
+Parameters:
+  OSType:
+    AllowedValues:
+      - linux
+      - windows
+    Default: linux 
+    Description: Specify whether you want to run Teradici on Linux or Windows OS. 
+    Type: String
+  EBSVolumeSize:
+      Default: '100'
+      Description: 'Volume size for the VFX Host, in GiB'
+      MaxValue: '16000'
+      MinValue: '100'
+      Type: Number
+  VFXHostInstanceType:
+      # AllowedValues:
+      #   - g3.4xlarge
+      #   - g3.8xlarge
+      #   - g3.16xlarge
+      #   - g3s.xlarge
+      Default: g4dn.xlarge
+      Description: Amazon EC2 instance type for the VFX workstations
+      Type: String
+  KeyPairName:
+    Description: >-
+      Public/private key pairs allow you to securely connect to your instance
+      after it launches
+    Type: String
+  VFXHostAccessCIDR:
+    AllowedPattern: >-
+      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]|3[0-2]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-32
+    Default: 10.0.128.0/20
+    Description: CIDR Block for the VFX Host to control authorized access.
+    Type: String
+  VPCID:
+    Description: VPC ID in which the VFX Host placed in. 
+    Type: String
+  SubnetID:
+    Description: ID of the public subnet 1 in Availability Zone 1 (e.g., subnet-e3246d8e)
+    Type: String
+  AMIID:
+    Description: VFX Host AMI ID. 
+    Type: String
+  VFXHostSubnetPlacement:
+    AllowedValues: 
+      - Public
+      - Private
+    ConstraintDescription: Specify if VFX host should be placed in "Public" or "Private" subnet.
+    Default: 'Public'
+    Description: Specify if VFX host should be placed in "Public" or "Private" subnet.
+    Type: String
+  AdditionalSecurityGroupId:
+    Default: '0'
+    Description: "Provide a security group id from which you want VFX Host to be accessed."
+    Type: String
+  EnableDeleteProtection:
+    AllowedValues: 
+      - "true"
+      - "false"
+    ConstraintDescription: Value must be either a true or false. 
+    Default: 'false'
+    Description: Specify if VFX host should have delete protection enabled..
+    Type: String
+  InstallBlenderSoftware:
+    AllowedValues: 
+      - "true"
+      - "false"
+    ConstraintDescription: Value must be either a true or false. 
+    Default: 'true'
+    Description: Specify if VFX host should download and install Blender software.
+    Type: String
+  CreateS3StorageBucket:
+    AllowedValues: 
+      - "true"
+      - "false"
+    ConstraintDescription: Value must be either a true or false. 
+    Default: 'true'
+    Description: Specify if template should create an AWS S3 Bucket and connect the host to sync files between local system and S3 bucket.
+    Type: String
+Conditions:
+  PublicVFXHostPlacement: !Equals [ !Ref VFXHostSubnetPlacement, Public ]
+  WindowsOS: !Equals [ !Ref OSType, 'windows' ]
+  LinuxOS: !Equals [ !Ref OSType, 'linux' ]
+  InstallBlenderSoftwareCond: !Equals [ !Ref InstallBlenderSoftware, 'true' ]
+  CreateS3StorageBucketCond: !Equals [ !Ref CreateS3StorageBucket, 'true' ]
+  AdditionalSecurityGroup: !Not [!Equals [ !Ref AdditionalSecurityGroupId, '0' ]]
+  AdditionalSecurityGroupAndWindows: !And  [ !Condition AdditionalSecurityGroup,!Condition WindowsOS ]
+  AdditionalSecurityGroupAndLinux: !And  [!Condition AdditionalSecurityGroup,!Condition LinuxOS ]
+Resources:
+  ##############################
+  #### VFX Host Resources ######
+  ##############################
+  PublicEIP:
+    Type: AWS::EC2::EIP
+    Condition: PublicVFXHostPlacement
+    Properties:
+      InstanceId: !If [LinuxOS, !Ref LinuxVFXHost, !Ref WindowsVFXHost]
+  VFXHostRole:
+    Type: AWS::IAM::Role
+    Condition: CreateS3StorageBucketCond
+    Properties:
+      Path: "/"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - 
+          PolicyName: "allow-access-to-s3-storage-bucket"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - 
+                Effect: "Allow"
+                Action: 
+                  - "s3:ListBucket"
+                Resource: !GetAtt StorageBucket.Arn
+              - 
+                Effect: "Allow"
+                Action: 
+                  - "s3:PutObject"
+                  - "s3:GetObject"
+                  - "s3:DeleteObject"
+                Resource: !Join ["",[!GetAtt StorageBucket.Arn,"/*"]]
+  VFXHostInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Condition: CreateS3StorageBucketCond
+    Properties:
+      Path: /
+      Roles:
+        - !Ref VFXHostRole
+  LinuxVFXHost:
+    Type: AWS::EC2::Instance
+    Condition: "LinuxOS"
+    Metadata:
+      AWS::CloudFormation::Init:
+        install_base:
+          files:
+              # These files are needed for CloudFormation::Init to work
+              /etc/cfn/cfn-hup.conf:
+                  content: !Sub |
+                      [main]
+                      stack=${AWS::StackId}
+                      region=${AWS::Region}
+                      interval=1
+              /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+                  content: !Sub |
+                      [cfn-auto-reloader-hook]
+                      triggers=post.update
+                      path=Resources.LinuxVFXHost.Metadata.AWS::CloudFormation::Init
+                      action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --region ${AWS::Region} --resource LinuxVFXHost
+                      runas=root
+          services:
+              sysvinit:
+                  cfn-hup:
+                      enabled: true
+                      ensureRunning: true
+        InstallBlender:
+          commands:
+              30-install-snapd:
+                command: "yum -y install snapd"
+              40-enable-snapd-socket:
+                command: "systemctl enable --now snapd.socket"
+              50-create-symlink:
+                command: "ln -s /var/lib/snapd/snap /snap"
+              60-snapd-wait:
+                command: "snap wait system seed.loaded"
+              70-install-blender:
+                command: "snap install blender --classic"
+        Configure_S3:
+          files:
+            /root/configure_s3.sh:
+              content: 
+                Fn::Sub:
+                  - | 
+                    #!/bin/bash
+                    crontab -l > current_cron
+                    cat >> current_cron << EOF
+                    */1 * * * * aws s3 sync s3://${StorageBucket} /home/centos/s3
+                    */1 * * * * aws s3 sync /home/centos/s3 s3://${StorageBucket}
+                    EOF
+                    crontab < current_cron
+                    rm -f current_cron
+                  - StorageBucket: !If [CreateS3StorageBucketCond, !Ref StorageBucket, '']
+          commands:
+              10-make-directory:
+                command: 'mkdir /home/centos/s3'
+              15-create-aws-sync:
+                 command: 'bash /root/configure_s3.sh'
+
+  
+        Success:
+          commands:
+              10-send-success-signal:
+                command: !Join ['',['/opt/aws/bin/cfn-signal -e 0 --stack ',!Ref 'AWS::StackName',' --resource LinuxVFXHost --region ', !Ref 'AWS::Region']]
+        configSets: 
+          CentOSConfigSet: 
+            - "install_base"
+            - Fn::If: [InstallBlenderSoftwareCond, "InstallBlender", !Ref "AWS::NoValue"]
+            - Fn::If: [CreateS3StorageBucketCond, "Configure_S3", !Ref "AWS::NoValue"]
+            - Success
+          default: 
+              - 
+                ConfigSet: "CentOSConfigSet"
+    CreationPolicy:
+        ResourceSignal:
+          Count: '1'
+          Timeout: PT25M
+    Properties:
+      KeyName: !Ref KeyPairName
+      DisableApiTermination: !Ref EnableDeleteProtection
+      ImageId: !Ref AMIID #'ami-03dc6d7f59e5f1765'
+      InstanceType: !Ref VFXHostInstanceType
+      IamInstanceProfile: !If [CreateS3StorageBucketCond, !Ref VFXHostInstanceProfile, !Ref "AWS::NoValue"]
+      SecurityGroupIds:
+        - !Ref VFXSecurityGroup
+      SubnetId: !Ref SubnetID
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeType: gp2
+            VolumeSize: !Ref EBSVolumeSize
+            DeleteOnTermination: 'true'
+            Encrypted: 'true'
+      UserData: 
+        Fn::Base64: !Sub |
+            #!/bin/bash
+            yum install -y epel-release
+            yum install -y awscli
+            /usr/bin/easy_install --script-dir /opt/aws/bin https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
+            cp -v /usr/lib/python2*/site-packages/aws_cfn_bootstrap*/init/redhat/cfn-hup /etc/init.d
+            chmod +x /etc/init.d/cfn-hup
+            /opt/aws/bin/cfn-init --stack ${AWS::StackId} --resource LinuxVFXHost --region ${AWS::Region}
+            /opt/aws/bin/cfn-signal -e 0 --stack ${AWS::StackName} --resource LinuxVFXHost --region ${AWS::Region}
+      Tags:
+        - Key: Name
+          Value: VFXHost
+
+  WindowsVFXHost:
+    Type: AWS::EC2::Instance
+    Condition: "WindowsOS"
+    Metadata:
+      AWS::CloudFormation::Init:
+        InstallBlender:
+          files:
+            C:\cfn\scripts\install_blender.ps1:
+              content: |
+                <#
+                .SYNOPSIS
+
+                This script downloads and installs chocolatey package manager and then installs Blender for Windows.
+
+                .DESCRIPTION
+
+                The command enables Powershell to download the chocolatey package manager Then it installs Blender which is an open source 3D graphics software.
+
+                .EXAMPLE
+
+                C:\PS> .\install_blender.ps1 
+                #>
+
+
+                # Write log to local txt file
+                Start-Transcript -Path C:\cfn\log\install_chocolatey.ps1.txt -Append
+                $ErrorActionPreference = "Stop"
+
+                Set-ExecutionPolicy Bypass -Scope Process -Force
+                [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072 
+                iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+                choco install --yes --limitoutput blender
+
+          commands:
+              10-install-chocolatey:
+                command: powershell.exe -Command ".\install_blender.ps1"
+                cwd: C:\cfn\scripts\
+                waitAfterCompletion: 0
+        Configure_EBS_Volume: 
+          files:
+            C:\cfn\scripts\diskpart.txt:
+              content: |
+                select disk 1
+                attributes disk clear readonly
+                convert mbr
+                create partition primary
+                format quick fs=ntfs label=EBS_Volume
+                assign letter=D
+          commands:
+            10-configure-ebs:
+              command: powershell.exe -Command "diskpart /s C:\cfn\scripts\diskpart.txt"
+              waitAfterCompletion: 0
+        Configure_S3:
+          files:
+            C:\cfn\scripts\s3_sync.ps1:
+              content: 
+                Fn::Sub:
+                  - | 
+                    # Write log to local txt file
+                    Start-Transcript -Path C:\cfn\log\s3_sync.ps1.txt -Append
+                    $ErrorActionPreference = "Stop"
+
+                    Set-ExecutionPolicy Bypass -Scope Process -Force
+
+                    aws s3 sync s3://${StorageBucket} D:\s3
+                    aws s3 sync D:\s3 s3://${StorageBucket}
+                  - StorageBucket: !If [CreateS3StorageBucketCond, !Ref StorageBucket, '']
+            C:\cfn\scripts\s3_sync.vbs:
+              content: | 
+                command = "powershell.exe -nologo -command C:\cfn\scripts\s3_sync.ps1"
+                set shell = CreateObject("WScript.Shell")
+                shell.Run command,0
+            C:\cfn\scripts\s3_configure.ps1:
+              content: | 
+                <#
+                .SYNOPSIS
+
+                This script downloads and installs AWS CLI
+
+                .DESCRIPTION
+
+                The command enables Powershell to download the AWS CLI and then installs it. Later it creates a task definition for two AWS sync commands.
+
+                .EXAMPLE
+
+                C:\PS> .\s3_configure.ps1 
+                #>
+
+
+                # Write log to local txt file
+                Start-Transcript -Path C:\cfn\log\s3_configure.ps1.txt -Append
+                $ErrorActionPreference = "Stop"
+
+                Set-ExecutionPolicy Bypass -Scope Process -Force
+                [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072  
+
+                Invoke-Expression -Command "((New-Object System.Net.WebClient).DownloadFile('https://awscli.amazonaws.com/AWSCLIV2.msi', 'C:\cfn\scripts\AWSCLIV2.msi'))"
+
+                # Install AWS CLI 
+
+                Start-Process msiexec.exe -Wait -ArgumentList '/I C:\cfn\scripts\AWSCLIV2.msi /quiet'
+
+                # Create a New Folder for S3 Bucket
+
+                New-Item -Path 'D:\s3' -ItemType Directory
+                
+                # Add Scheduled Task Definitions
+
+                Schtasks /create /tn "Sync with AWS S3 Bucket" /sc minute /mo 1 /tr "C:\cfn\scripts\s3_sync.vbs"
+          commands:
+            010-configure-s3-sync:
+              command: powershell.exe -Command ".\s3_configure.ps1"
+              cwd: C:\cfn\scripts\
+              waitAfterCompletion: 0
+        Install_Wacom_Drivers:
+          files:
+            C:\cfn\scripts\install-wacom-drivers.ps1:
+              content: |
+                [CmdletBinding()]
+                param(
+                    [Parameter(Mandatory=$false)]
+                    [string]$Source = 'http://cdn.wacom.com/u/productsupport/drivers/win/professional/WacomTablet_6.3.39-1.exe',
+                    # 'http://cdn.wacom.com/u/productsupport/drivers/win/professional/WacomTablet_6.3.29-6.exe'
+
+                    [Parameter(Mandatory=$false)]
+                    [string]$Destination = 'C:\cfn\downloads\wacom-installer.exe'
+                )
+
+                try {
+                    $ErrorActionPreference = "Stop"
+
+                    $parentDir = Split-Path $Destination -Parent
+                    if (-not (Test-Path $parentDir)) {
+                        New-Item -Path $parentDir -ItemType directory -Force | Out-Null
+                    }
+
+                    Write-Verbose "Trying to download Wacom driver from $Source to $Destination"
+                    $tries = 5
+                    while ($tries -ge 1) {
+                        try {
+                            (New-Object System.Net.WebClient).DownloadFile($Source,$Destination)
+                            break
+                        }
+                        catch {
+                            $tries--
+                            Write-Verbose "Exception:"
+                            Write-Verbose "$_"
+                            if ($tries -lt 1) {
+                                throw $_
+                            }
+                            else {
+                                Write-Verbose "Failed download. Retrying again in 5 seconds"
+                                Start-Sleep 5
+                            }
+                        }
+                    }
+
+                    if ([System.IO.Path]::GetExtension($Destination) -eq '.exe') {
+                      Write-Verbose "Start install of Wacom drivers ..."
+                      # '/NoPostReboot' - to prevent reboot
+                      #
+                      Start-Process -FilePath $Destination -ArgumentList '/S', '/NoPostReboot'  -Wait
+
+                    } else {
+                        throw "Unable to install Wacom drivers, not .exe extension"
+                    }
+                    Write-Verbose "Install Wacom drivers complete"
+                }
+                catch {
+                    Write-Verbose "catch: $_"
+                    $_ | Write-AWSQuickStartException
+                }
+          commands:
+            10-install-wacom-drivers:
+              command: powershell.exe -Command ".\install-wacom-drivers.ps1"
+              cwd: C:\cfn\scripts\
+              waitAfterCompletion: 0
+        SignalSuccess:
+            commands: 
+              200-signal-success:
+                command: !Join ['',['powershell.exe -Command "cfn-signal.exe --success true --stack ', !Ref 'AWS::StackName', ' --resource WindowsVFXHost --region ', !Ref 'AWS::Region']]
+                waitAfterCompletion: 0
+
+        configSets: 
+          WindowsOSConfigSet: 
+            - Fn::If: [InstallBlenderSoftwareCond, "InstallBlender", !Ref "AWS::NoValue"]
+            - "Configure_EBS_Volume"
+            - Fn::If: [CreateS3StorageBucketCond, "Configure_S3", !Ref "AWS::NoValue"]
+            - "Install_Wacom_Drivers"
+            - "SignalSuccess"
+                        
+            
+          default: 
+              - 
+                ConfigSet: "WindowsOSConfigSet"
+    CreationPolicy:
+        ResourceSignal:
+          Count: '1'
+          Timeout: PT25M
+    Properties:
+      KeyName: !Ref KeyPairName
+      ImageId: !Ref AMIID 
+      InstanceType: !Ref VFXHostInstanceType
+      IamInstanceProfile: !If [CreateS3StorageBucketCond, !Ref VFXHostInstanceProfile, !Ref "AWS::NoValue"]
+      DisableApiTermination: !Ref EnableDeleteProtection
+      SecurityGroupIds:
+        - !Ref VFXSecurityGroup
+      SubnetId: !Ref SubnetID
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeType: gp2
+            VolumeSize: !Ref EBSVolumeSize
+            DeleteOnTermination: 'true'
+            Encrypted: 'true'
+      UserData:
+          Fn::Base64: !Sub |
+            <powershell>
+            Start-Transcript -Path "C:\cfn\log\userdata.log"
+            cfn-init.exe --stack ${AWS::StackName} --resource WindowsVFXHost --region ${AWS::Region}
+            Stop-Transcript
+            </powershell>
+            <persist>false</persist>
+      Tags:
+        - Key: Name
+          Value: VFXHost
+
+
+  VFXSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: This security group is based on recommended settings for Teradici Cloud Access Software for CentOS 7 version 20.01.1-a provided by Teradici
+      VpcId: !Ref VPCID
+  VFXHostSecurityGroupIngress1:      
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties: 
+      GroupId: !Ref VFXSecurityGroup
+      FromPort: 4172
+      ToPort: 4172
+      IpProtocol: tcp
+      CidrIp: !Ref VFXHostAccessCIDR
+      Description: 'PCoIP Session Establishment Port (Access from approved CIDR)'
+  VFXHostSecurityGroupIngress2:      
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties: 
+      GroupId: !Ref VFXSecurityGroup
+      FromPort: 4172
+      ToPort: 4172
+      IpProtocol: udp
+      CidrIp: !Ref VFXHostAccessCIDR
+      Description: 'PCoIP Session Data (Access from approved CIDR)'
+  VFXHostSecurityGroupIngress3:      
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties: 
+      GroupId: !Ref VFXSecurityGroup
+      Description: 
+      FromPort: 443
+      ToPort: 443
+      IpProtocol: tcp
+      CidrIp: !Ref VFXHostAccessCIDR
+      Description: 'Client Authentication (Access from approved CIDR)'
+  VFXHostSecurityGroupIngress4:      
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: LinuxOS
+    Properties: 
+      GroupId: !Ref VFXSecurityGroup
+      FromPort: 22
+      ToPort: 22
+      IpProtocol: tcp
+      CidrIp: !Ref VFXHostAccessCIDR
+      Description: 'SSH Port (Access from approved CIDR)'
+  VFXHostSecurityGroupIngress5:      
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: WindowsOS 
+    Properties: 
+      GroupId: !Ref VFXSecurityGroup
+      FromPort: 3389
+      ToPort: 3389
+      IpProtocol: tcp
+      CidrIp: !Ref VFXHostAccessCIDR
+      Description: 'Remote Desktop Port (Access from approved CIDR)'
+  VFXHostSecurityGroupIngress6:      
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: AdditionalSecurityGroup
+    Properties: 
+      GroupId: !Ref VFXSecurityGroup
+      FromPort: 4172
+      ToPort: 4172
+      IpProtocol: tcp
+      SourceSecurityGroupId: !Ref AdditionalSecurityGroupId
+      Description: 'PCoIP Session Establishment Port (Access from VPN Security Group)'
+  VFXHostSecurityGroupIngress7:      
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: AdditionalSecurityGroup
+    Properties: 
+      GroupId: !Ref VFXSecurityGroup
+      FromPort: 4172
+      ToPort: 4172
+      IpProtocol: udp
+      SourceSecurityGroupId: !Ref AdditionalSecurityGroupId
+      Description: 'PCoIP Session Data (Access from VPN Security Group)'
+  VFXHostSecurityGroupIngress8:      
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: AdditionalSecurityGroup
+    Properties: 
+      GroupId: !Ref VFXSecurityGroup
+      FromPort: 443
+      ToPort: 443
+      IpProtocol: tcp
+      SourceSecurityGroupId: !Ref AdditionalSecurityGroupId
+      Description: 'Client Authentication (Access from VPN Security Group)'
+  VFXHostSecurityGroupIngress9:      
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: AdditionalSecurityGroupAndLinux
+    Properties: 
+      GroupId: !Ref VFXSecurityGroup
+      FromPort: 22
+      ToPort: 22
+      IpProtocol: tcp
+      SourceSecurityGroupId: !Ref AdditionalSecurityGroupId
+      Description: 'SSH Port (Access from VPN Security Group)'
+  VFXHostSecurityGroupIngress10:      
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: AdditionalSecurityGroupAndWindows 
+    Properties: 
+      GroupId: !Ref VFXSecurityGroup
+      FromPort: 3389
+      ToPort: 3389
+      IpProtocol: tcp
+      SourceSecurityGroupId: !Ref AdditionalSecurityGroupId
+      Description: 'Remote Desktop Port (Access from VPN Security Group)'
+  VFXHostSecurityGroupEgress1:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties: 
+      GroupId: !Ref VFXSecurityGroup
+      IpProtocol: -1
+      SourceSecurityGroupId: !Ref AdditionalSecurityGroupId
+
+
+
+
+
+
+  ##############################
+  ###### S3 Resources ##########
+  ##############################
+  StorageBucket:
+    Type: "AWS::S3::Bucket"
+    Condition: CreateS3StorageBucketCond
+    DeletionPolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+      BucketName: !Join
+        - "-"
+        - - "vfx-storage"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"
+Outputs:
+  StorageS3Bucket:
+    Description: "Storage S3 Bucket"
+    Condition: CreateS3StorageBucketCond
+    Value: !Ref StorageBucket
+    Export: 
+      Name: !Sub "${AWS::StackName}:StorageS3Bucket"
+  WindowsVFXInstanceID:
+    Description: Instance ID of the VFX Host.
+    Condition: WindowsOS 
+    Value: !Ref WindowsVFXHost
+    Export: 
+      Name: !Sub "${AWS::StackName}:VFXInstanceID" 
+  WindowsVFXInstanceIP:
+    Description: IP address of VFX Host.
+    Condition: WindowsOS
+    Value: !If [PublicVFXHostPlacement, !GetAtt WindowsVFXHost.PublicIp, !GetAtt WindowsVFXHost.PrivateIp]
+    Export: 
+      Name: !Sub "${AWS::StackName}:VFXInstanceIP"
+  LinuxVFXInstanceID:
+    Description: Instance ID of the VFX Host.
+    Condition: LinuxOS
+    Value: !Ref LinuxVFXHost
+    Export: 
+      Name: !Sub "${AWS::StackName}VFXInstanceID"
+  LinuxVFXInstanceIP:
+    Description: IP address of VFX Host.
+    Condition: LinuxOS
+    Value: !If [PublicVFXHostPlacement, !GetAtt LinuxVFXHost.PublicIp, !GetAtt LinuxVFXHost.PrivateIp]
+    Export: 
+      Name: !Sub "${AWS::StackName}:VFXInstanceIP"

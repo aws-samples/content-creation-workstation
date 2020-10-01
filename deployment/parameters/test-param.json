@@ -1,0 +1,42 @@
+[
+    {
+    "ParameterKey": "KeyPairName",
+    "ParameterValue": "Customer-KeyPair-Name"
+    },
+    {
+    "ParameterKey": "VFXHostAccessCIDR",
+    "ParameterValue": "123.45.67.89/32"
+    },
+    {
+    "ParameterKey": "VFXHostSubnetPlacement",
+    "ParameterValue": "Public"
+    },
+    {
+    "ParameterKey": "OSType",
+    "ParameterValue": "windows"
+    },
+    {
+    "ParameterKey": "EnableDeleteProtection",
+    "ParameterValue": "false"
+    },
+    {
+    "ParameterKey": "InstallBlenderSoftware",
+    "ParameterValue": "false"
+    },
+    {
+    "ParameterKey": "CreateS3StorageBucket",
+    "ParameterValue": "true"
+    },
+    {
+    "ParameterKey": "EnableVPCFlowLogs",
+    "ParameterValue": "false"
+    },
+    {
+    "ParameterKey": "ExistingVPCID",
+    "ParameterValue": "vpc-id"
+    },
+    {
+    "ParameterKey": "ExistingSubnetID",
+    "ParameterValue": "subnet-id"
+    }
+]

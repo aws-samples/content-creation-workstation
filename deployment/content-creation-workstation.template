@@ -1,0 +1,344 @@
+# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: 2010-09-09
+Transform: 'AWS::Serverless-2016-10-31'
+Description: >-
+  This is a quick start template  that deploys the VFX Workstation along with other optional resources such as VPC and Client VPN.
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Amazon EC2 Configuration
+        Parameters:
+          - OSType
+          - EBSVolumeSize
+          - KeyPairName
+          - VFXHostInstanceType
+          - VFXHostAccessCIDR
+          - VFXHostSubnetPlacement
+          - EnableDeleteProtection
+          - InstallBlenderSoftware
+          - CreateS3StorageBucket
+      - Label:
+          default: Existing VPC Configuration
+        Parameters:
+          - ExistingVPCID
+          - ExistingSubnetID
+      - Label:
+          default: New VPC Configuration
+        Parameters:
+          - VPCCIDR
+          - PublicSubnet1CIDR
+          - PrivateSubnet1CIDR
+          - EnableVPCFlowLogs
+      - Label:
+          default: VPN Endpoint Configuration
+        Parameters:
+          - CreateVPNEndpoint 
+          - ClientCidrBlock
+          - ServerCertArn
+          - ClientCertificateArn
+          - TargetNetworkCidr
+
+
+    ParameterLabels:
+      OSType:
+        default: VFX Host Operating System
+      EBSVolumeSize:
+        default: EBS Volume size for EC2 instance
+      VFXHostInstanceType:
+        default: VFX Host Instance Type
+      KeyPairName:
+        default: Key Pair Name 
+      VFXHostAccessCIDR:
+        default: VFX Host Access CIDR
+      VFXHostSubnetPlacement:
+        default: VFX Host subnet placement.
+      EnableDeleteProtection:
+        default: Enable Termination Protection
+      InstallBlenderSoftware:
+        default: Install Blender Software
+      CreateS3StorageBucket:
+        default: Creates S3 bucket to store files and then sync with workstation. 
+      ExistingVPCID:
+        default: Existing VPC ID 
+      ExistingSubnetID:
+        default: Existing Subnet ID 
+      VPCCIDR:
+        default: VPC CIDR Range
+      PublicSubnet1CIDR:
+        default: CIDR Range for Public Subnet in new VPC
+      PrivateSubnet1CIDR:
+        default: CIDR Range for Private Subnet in new VPC
+      EnableVPCFlowLogs:
+        default: Enable VPC Flow Logs
+      CreateVPNEndpoint: 
+        default: Create VPN Endpoint.
+      ClientCidrBlock:
+        default: Client CIDR for VPN Endpoint. 
+      ServerCertArn:
+        default: Specify Server Cert Arn for VPN endpoint.
+      ClientCertificateArn:
+        default: Specify Client Cert Arn for VPN endpoint.
+      TargetNetworkCidr:
+        default: Target Network CIDR for VPN Endpoint.
+
+Parameters:
+  ############################
+  ### VFX Host Parameters#####
+  ############################
+  OSType:
+    AllowedValues:
+      - linux
+      - windows
+    Default: linux 
+    Description: Specify whether you want to run Teradici on Linux or Windows OS. 
+    Type: String
+  EBSVolumeSize:
+    Default: '100'
+    Description: 'Volume size for the VFX Host, in GiB'
+    MaxValue: '16000'
+    MinValue: '100'
+    Type: Number
+  VFXHostInstanceType:
+    AllowedValues:
+      - g4dn.xlarge
+      - g4dn.2xlarge
+      - g4dn.4xlarge
+      - g4dn.8xlarge
+      - g4dn.12xlarge
+      - g4dn.16xlarge
+    Default: g4dn.xlarge
+    Description: Amazon EC2 instance type for the VFX workstations
+    Type: String
+  KeyPairName:
+    Description: >-
+      Name of AWS EC2 Key Pair.
+    Type: 'AWS::EC2::KeyPair::KeyName'
+  VFXHostAccessCIDR:
+    AllowedPattern: >-
+      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-9]|3[0-2]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-32
+    Default: '10.64.0.0/16'
+    Description: CIDR Block from which the VFX Host will be accessible.
+    Type: String
+  VFXHostSubnetPlacement:
+    AllowedValues: 
+      - Public
+      - Private
+    ConstraintDescription: Specify if VFX host should be placed in "Public" or "Private" subnet.
+    Default: 'Public'
+    Description: Specify if VFX host should be placed in "Public" or "Private" subnet.
+    Type: String
+  EnableDeleteProtection:
+    AllowedValues: 
+      - "true"
+      - "false"
+    ConstraintDescription: Value must be either a true or false. 
+    Default: 'false'
+    Description: Specify if VFX host should have delete protection enabled.
+    Type: String
+  InstallBlenderSoftware:
+    AllowedValues: 
+      - "true"
+      - "false"
+    ConstraintDescription: Value must be either a true or false. 
+    Default: 'true'
+    Description: Specify if VFX host should download and install Blender software.
+    Type: String
+  CreateS3StorageBucket:
+    AllowedValues: 
+      - "true"
+      - "false"
+    ConstraintDescription: Value must be either a true or false. 
+    Default: 'true'
+    Description: Specify if template should create an AWS S3 Bucket and connect the host to sync files between local system and S3 bucket.
+    Type: String
+  ############################
+  ## Existing VPC Parameters##
+  ############################
+  ExistingVPCID:
+    Default: 'N/A'
+    Description: If solution should deploy into an existing VPC, Specify existing VPC ID.
+    Type: String
+  ExistingSubnetID:
+    Default: 'N/A'
+    Description: If solution should deply into an existing VPN, Specify subnet id in which the VFX Host should be placed in.
+    Type: String
+  ############################
+  ##### New VPC Parameters####
+  ############################
+  VPCCIDR:
+    AllowedPattern: >-
+      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 10.64.0.0/16
+    Description: If solution should create a new VPC, specify CIDR Block for the VPC
+    Type: String
+  PublicSubnet1CIDR:
+    AllowedPattern: >-
+      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 10.64.32.0/20
+    Description: If solution should create a new VPC, specify CIDR Block for the public subnet 1 located in Availability Zone 2
+    Type: String
+  PrivateSubnet1CIDR:
+    AllowedPattern: >-
+      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Default: 10.64.96.0/20
+    Description: If solution should create a new VPC, specify CIDR Block for the private subnet 1 located in Availability Zone 2
+    Type: String
+  EnableVPCFlowLogs:
+    AllowedValues: 
+      - "true"
+      - "false"
+    ConstraintDescription: Value must be either a true or false. 
+    Default: 'false'
+    Description: Specify if newly created VPC should have VPC flow logs enabled. The CloudFormation template will create a new S3 bucket to store the logs. It will also capture ALL logs including ACCEPTS and REJECTS.
+    Type: String
+  ############################
+  ### VPN Parameters###
+  ############################
+  CreateVPNEndpoint:
+    ConstraintDescription: Must specify 'true' or 'false'
+    AllowedValues: 
+      - 'false'
+      - 'true'
+    Default: 'false'
+    Description: "Should the CloudFormation create a Client VPN Endpoint. It is recommended if VFX Host is placed in private subnet and there is no other provisions created to connect to private subnet.(Specify 'true' or 'false')"
+    Type: String
+  ClientCidrBlock:
+    Description: If creating Client VPN endpoint in the solution, specify the IPv4 address range. It should be in CIDR notation from which to assign client IP addresses. The address range cannot overlap with the local CIDR of the VPC in which the associated subnet.
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-9]|3[0-2]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-32
+    Default: 10.50.0.0/20
+    Type: String
+  ServerCertArn:
+    Description: If creating Client VPN endpoint in the solution, specify Server Cert Arn for VPN endpoint.
+    Default: 'N/A'
+    Type: String
+  ClientCertificateArn:
+    Description: If creating Client VPN endpoint in the solution, specify Client Cert Arn for VPN endpoint.
+    Default: 'N/A'
+    Type: String
+  TargetNetworkCidr:
+    Description: If creating Client VPN endpoint in the solution, specify the IPv4 address range, in CIDR notation, of the network for which access is being authorized.
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(0[0-9]|1[0-9]|2[0-9]|3[0-2]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/0-32
+    Default: '10.64.0.0/16'
+    Type: String
+
+Conditions: 
+
+  PublicVFXHostPlacement: !Equals [ !Ref VFXHostSubnetPlacement, Public ]
+  PrivateVFXHostPlacement: !Equals [ !Ref VFXHostSubnetPlacement, Private ]
+  ExistingVPC: !Not [ !Equals [ 'N/A',  !Ref ExistingVPCID ]]
+  NoExistingVPC: !Equals [ 'N/A',  !Ref ExistingVPCID ]
+  CreateVPN: !Equals [ 'true',  !Ref CreateVPNEndpoint ]
+
+Resources:
+
+  ##############################
+  ### VPC Resources #####
+  ##############################
+  VPCStack:
+    Type: 'AWS::CloudFormation::Stack'
+    Condition: "NoExistingVPC"
+    Properties:
+      TemplateURL: ./vpc.yaml
+      Parameters:
+        PublicAZBSubnetBlock: !Ref PublicSubnet1CIDR
+        PrivateAZBSubnetBlock: !Ref PrivateSubnet1CIDR
+        VpcCidrParam: !Ref VPCCIDR
+        EnableVPCFlowLogs: !Ref EnableVPCFlowLogs
+
+
+  ##############################
+  ### VPN Resources #####
+  ##############################
+  VPNStack:
+    Type: 'AWS::CloudFormation::Stack'
+    Condition: "CreateVPN"
+    Properties:
+      TemplateURL: ./client_vpn.yaml
+      Parameters:
+        ClientCidrBlock: !Ref ClientCidrBlock
+        ServerCertArn: !Ref ServerCertArn 
+        ClientCertificateArn: !Ref ClientCertificateArn
+        SubnetID: !If [ExistingVPC, !Ref ExistingSubnetID, !GetAtt VPCStack.Outputs.PrivateAZBSubnetId]
+        TargetNetworkCidr: !Ref TargetNetworkCidr
+        VPC: !If [ExistingVPC, !Ref ExistingVPCID, !GetAtt VPCStack.Outputs.VpcId]
+        
+
+  ##############################
+  ### VFX Host Resources #####
+  ##############################
+  CloudVFXHostStack:
+    Type: 'AWS::CloudFormation::Stack'
+    Properties:
+      TemplateURL: ./vfxhost.yaml
+      Parameters:
+        EBSVolumeSize: !Ref EBSVolumeSize
+        VFXHostInstanceType: !Ref VFXHostInstanceType
+        KeyPairName: !Ref KeyPairName
+        SubnetID: !If [ExistingVPC, !Ref ExistingSubnetID, !If [PublicVFXHostPlacement, !GetAtt VPCStack.Outputs.PublicAZBSubnetId, !GetAtt VPCStack.Outputs.PrivateAZBSubnetId]]
+        VPCID: !If [ExistingVPC, !Ref ExistingVPCID, !GetAtt VPCStack.Outputs.VpcId]
+        VFXHostAccessCIDR: !Ref VFXHostAccessCIDR
+        AMIID: !GetAtt AMIInfo.AMIID
+        OSType: !Ref OSType
+        VFXHostSubnetPlacement: !Ref VFXHostSubnetPlacement
+        AdditionalSecurityGroupId: !If [CreateVPN,!GetAtt VPNStack.Outputs.VPNSecurityGroupID, !Ref 'AWS::NoValue'] 
+        EnableDeleteProtection: !Ref EnableDeleteProtection
+        InstallBlenderSoftware: !Ref InstallBlenderSoftware
+        CreateS3StorageBucket: !Ref CreateS3StorageBucket
+
+  ##############################
+  ### AMI Lookup Resources #####
+  ##############################
+  AMILookupLambda:
+      Type: 'AWS::Serverless::Function'
+      Properties:
+        Handler: lambda_function.handler
+        Runtime: python3.7
+        CodeUri: ../source/
+        Role: !GetAtt LambdaExecutionRole.Arn
+  
+  
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: arn:aws:logs:*:*:*
+          - Effect: Allow
+            Action:
+            - ec2:DescribeImages
+            Resource: "*"
+  
+
+  AMIInfo: 
+    Type: AWS::CloudFormation::CustomResource
+    Properties: 
+      ServiceToken: !GetAtt AMILookupLambda.Arn
+      OSType: !Ref OSType
+

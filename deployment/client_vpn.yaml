@@ -1,0 +1,104 @@
+# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'This template provisions Client VPN Resources' 
+Parameters:
+  ClientCidrBlock:
+    Description: The IPv4 address range, in CIDR notation, from which to assign client IP addresses. The address range cannot overlap with the local CIDR of the VPC in which the associated subnet is located, or the routes that you add manually. 
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-9]|3[0-2]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-32
+    Type: String
+  ServerCertArn:
+    Description: Specify Server Cert Arn for VPN endpoint.
+    Type: String
+  ClientCertificateArn:
+    Description: Specify Client Cert Arn for VPN endpoint.
+    Type: String
+  SubnetID:
+    Description: The ID of the subnet to associate with the Client VPN endpoint.
+    Type: String
+  TargetNetworkCidr:
+    Description: The IPv4 address range, in CIDR notation, of the network for which access is being authorized.
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(0[0-9]|1[0-9]|2[0-9]|3[0-2]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/0-32
+    Type: String
+  VPC:
+    Description: The ID of the VPC to associate with the Client VPN endpoint.
+    Type: String
+#Conditions:
+
+Resources:
+  ClientVpnEndpoint:
+    Type: AWS::EC2::ClientVpnEndpoint
+    Properties: 
+      AuthenticationOptions:
+        -
+          MutualAuthentication:
+            ClientRootCertificateChainArn: !Ref ClientCertificateArn
+          Type: "certificate-authentication"
+      ClientCidrBlock: !Ref ClientCidrBlock 
+      ConnectionLogOptions: 
+        Enabled: false
+      Description: "Client VPN to connect to VFX Host"
+      ServerCertificateArn: !Ref ServerCertArn
+      VpcId: !Ref VPC
+      SecurityGroupIds: 
+        - !Ref VPNSecurityGroup
+      Tags:
+        - Key: Name
+          Value: VFX-ClientVPN
+  VpnEndpointTargetNetworkAssociation:
+    Type: AWS::EC2::ClientVpnTargetNetworkAssociation
+    Properties: 
+      ClientVpnEndpointId: !Ref ClientVpnEndpoint
+      SubnetId: !Ref SubnetID 
+  VpnEndpointAuthorizationRule:
+    Type: AWS::EC2::ClientVpnAuthorizationRule
+    Properties: 
+      ClientVpnEndpointId: !Ref ClientVpnEndpoint
+      AuthorizeAllGroups: true
+      Description: Allow access to VFX Host subnet.
+      TargetNetworkCidr: !Ref TargetNetworkCidr 
+  InternetAuthRule:
+    Type: "AWS::EC2::ClientVpnAuthorizationRule"
+    Properties:
+      ClientVpnEndpointId: !Ref ClientVpnEndpoint
+      AuthorizeAllGroups: true
+      TargetNetworkCidr: "0.0.0.0/0"
+      Description: "Allow access to internet"
+  InternetRoute:
+    Type: "AWS::EC2::ClientVpnRoute"
+    DependsOn: VpnEndpointTargetNetworkAssociation
+    Properties:
+      ClientVpnEndpointId: !Ref ClientVpnEndpoint
+      TargetVpcSubnetId: !Ref SubnetID  
+      DestinationCidrBlock: "0.0.0.0/0"
+      Description: "Route to the internet"
+
+  VPNSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: Security Group for VPN Clients
+      GroupDescription: This security group is attached to the Client VPN Endpoint. 
+      VpcId: !Ref VPC
+  VPNHostSecurityGroupIngress1:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties: 
+      GroupId: !Ref VPNSecurityGroup
+      IpProtocol: -1
+      SourceSecurityGroupId: !Ref VPNSecurityGroup
+  VPNHostSecurityGroupEgress1:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties: 
+      GroupId: !Ref VPNSecurityGroup
+      FromPort: 0
+      ToPort: 65535
+      IpProtocol: -1
+      SourceSecurityGroupId: !Ref VPNSecurityGroup
+Outputs:
+  VPNSecurityGroupID:
+    Description: VPN Security Group ID
+    Value: !GetAtt VPNSecurityGroup.GroupId
+    Export:
+      Name: !Sub "${AWS::StackName}-vpn-security-group-id"

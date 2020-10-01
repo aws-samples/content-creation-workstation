@@ -1,0 +1,231 @@
+# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: >
+  Creates a VPC with public subnet for a given AWS Account.
+Parameters:
+  VpcCidrParam:
+    Type: String
+    Description: VPC CIDR. For more info, see http://docs.aws.amazon.com/AmazonVPC/latest/UserGuide/VPC_Subnets.html#VPC_Sizing
+    AllowedPattern: "^(10|172|192)\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\/(16|17|18|19|20|21|22|23|24|25|26|27|28)$"
+    ConstraintDescription: must be valid IPv4 CIDR block (/16 to /28) from the private address ranges defined in RFC 1918.
+
+  # Public Subnets
+  PublicAZBSubnetBlock:
+    Type: String
+    Description: Subnet CIDR for first Availability Zone
+    AllowedPattern: "^(10|172|192)\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\/(16|17|18|19|20|21|22|23|24|25|26|27|28)$"
+    ConstraintDescription: must be valid IPv4 CIDR block (/16 to /28) from the private address ranges defined in RFC 1918.
+  PrivateAZBSubnetBlock:
+    Type: String
+    Description: Subnet CIDR for second Availability Zone (e.g. us-west-2b, us-east-1c)
+    AllowedPattern: "^(10|172|192)\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\/(16|17|18|19|20|21|22|23|24|25|26|27|28)$"
+    ConstraintDescription: must be valid IPv4 CIDR block (/16 to /28) from the private address ranges defined in RFC 1918.
+
+  # VPC Flow Logs 
+  EnableVPCFlowLogs:
+    AllowedValues: 
+      - "true"
+      - "false"
+    ConstraintDescription: Value must be either a true or false. 
+    Default: 'false'
+    Description: Specify if newly created VPC should have VPC flow logs enabled. The CloudFormation template will create a new S3 bucket to store the logs. It will also capture ALL logs including ACCEPTS and REJECTS.
+    Type: String
+Conditions:
+  EnableVPCFlowLogsCond: !Equals [ !Ref EnableVPCFlowLogs, 'true' ]
+Outputs:
+  VpcId:
+    Description: VPC Id
+    Value: !Ref Vpc
+    Export:
+      Name: !Sub "${AWS::StackName}-vpc-cidr"
+  VpcCidr:
+    Description: VPC Cidr
+    Value: !GetAtt Vpc.CidrBlock
+    Export:
+      Name: !Sub "${AWS::StackName}-vpc-id"
+
+  PublicRouteTableId:
+    Description: Route Table for public subnets
+    Value: !Ref PublicRouteTable
+    Export:
+      Name: !Sub "${AWS::StackName}-public-rtb"
+
+  PublicAZBSubnetId:
+    Description: Availability Zone A public subnet Id
+    Value: !Ref PublicAZBSubnet
+    Export:
+      Name: !Sub "${AWS::StackName}-public-az-a-subnet"
+
+  PrivateAZBSubnetId:
+    Description: Availability Zone B private subnet Id
+    Value: !Ref PrivateAZBSubnet
+    Export:
+      Name: !Sub "${AWS::StackName}-private-az-b-subnet"
+
+  VPCFlowLogsBucket:
+    Description: S3 Bucket where VPC Flow logs are stored
+    Condition: EnableVPCFlowLogsCond
+    Value: !GetAtt VPCFlowLogsBucket.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-vpc-flowlogs-bucket"
+  
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidrParam
+      EnableDnsHostnames: True
+      EnableDnsSupport: True
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref Vpc
+
+  # Public Subnets - Route Table
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-public
+        - Key: Type
+          Value: public
+
+  PublicSubnetsRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+    DependsOn: VPCGatewayAttachment
+
+  # Public Subnets
+  # First Availability Zone
+  PublicAZBSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PublicAZBSubnetBlock
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub
+            - ${AWS::StackName}-public-${AZ}
+            - { AZ: !Select [1, !GetAZs ""] }
+        - Key: Type
+          Value: public
+
+  PublicAZBSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicAZBSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  AZBNatGatewayEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+    DependsOn: VPCGatewayAttachment
+
+  AZBNatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt AZBNatGatewayEIP.AllocationId
+      SubnetId: !Ref PublicAZBSubnet
+  PrivateAZBSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PrivateAZBSubnetBlock
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub
+            - ${AWS::StackName}-private-${AZ}
+            - { AZ: !Select [1, !GetAZs ""] }
+        - Key: Type
+          Value: private
+
+  PrivateAZBRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub
+            - ${AWS::StackName}-private-${AZ}
+            - { AZ: !Select [1, !GetAZs ""] }
+        - Key: Type
+          Value: private
+
+  PrivateAZBRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateAZBRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref AZBNatGateway
+
+  PrivateAZBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateAZBSubnet
+      RouteTableId: !Ref PrivateAZBRouteTable
+
+
+  S3VPCEndpoint:
+    Type: "AWS::EC2::VPCEndpoint"
+    Properties:
+      RouteTableIds:
+        - !Ref PublicRouteTable
+      ServiceName: !Join
+        - ""
+        - - com.amazonaws.
+          - !Ref "AWS::Region"
+          - .s3
+      VpcId: !Ref Vpc
+
+  #VPC Flow Logs. 
+  VPCFlowLogs:
+    Type: AWS::EC2::FlowLog
+    Condition: EnableVPCFlowLogsCond
+    Properties: 
+      LogDestination: !GetAtt  VPCFlowLogsBucket.Arn
+      LogDestinationType: s3
+      ResourceId: !Ref Vpc
+      ResourceType: VPC
+      TrafficType: ALL
+
+  VPCFlowLogsBucket:
+    Type: "AWS::S3::Bucket"
+    DeletionPolicy: Retain
+    Condition: EnableVPCFlowLogsCond
+    Properties:
+      BucketName: !Join
+        - "-"
+        - - "vpcflowlogs"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"
