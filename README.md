@@ -1,6 +1,6 @@
 # Content Creation Workstation AWS Sample
 
-Based off the [Creating a Virtual Workstation on AWS](https://studio-in-the-cloud-tutorials.s3-us-west-1.amazonaws.com/streaming-workstation/Creating+a+Virtual+Workstation+on+AWS.pdf), the following CloudFormation template has been created for deploying a Teradic Cloud Access Software on either CentOS 7 or Windows Server 2019 GPU-Enabled EC2 instances. The CloudFormation also provides the ability to provision Client VPN Endpoint if elected during deployment.
+Based off the [Creating a Virtual Workstation on AWS](https://studio-in-the-cloud-tutorials.s3-us-west-1.amazonaws.com/streaming-workstation/Creating+a+Virtual+Workstation+on+AWS.pdf), the following CloudFormation template has been created for deploying a Teradici Cloud Access Software on either CentOS 7 or Windows Server 2019 GPU-Enabled EC2 instances. The CloudFormation also provides the ability to provision Client VPN Endpoint if elected during deployment.
 
 Below are architecture diagrams of some deployable configurations. These are not all configurations as the solutions offers ability to chose VPC deployment location (new or existing), subnet (public or private), and Client VPN deployment(true or false). This results in 8 possible deployment combinations.
 
