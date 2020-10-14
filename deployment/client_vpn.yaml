@@ -88,14 +88,6 @@ Resources:
       GroupId: !Ref VPNSecurityGroup
       IpProtocol: -1
       SourceSecurityGroupId: !Ref VPNSecurityGroup
-  VPNHostSecurityGroupEgress1:
-    Type: AWS::EC2::SecurityGroupEgress
-    Properties: 
-      GroupId: !Ref VPNSecurityGroup
-      FromPort: 0
-      ToPort: 65535
-      IpProtocol: -1
-      SourceSecurityGroupId: !Ref VPNSecurityGroup
 Outputs:
   VPNSecurityGroupID:
     Description: VPN Security Group ID

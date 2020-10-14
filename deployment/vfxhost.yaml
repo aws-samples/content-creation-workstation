@@ -578,12 +578,6 @@ Resources:
       IpProtocol: tcp
       SourceSecurityGroupId: !Ref AdditionalSecurityGroupId
       Description: 'Remote Desktop Port (Access from VPN Security Group)'
-  VFXHostSecurityGroupEgress1:
-    Type: AWS::EC2::SecurityGroupEgress
-    Properties: 
-      GroupId: !Ref VFXSecurityGroup
-      IpProtocol: -1
-      SourceSecurityGroupId: !Ref AdditionalSecurityGroupId
 
 
 
