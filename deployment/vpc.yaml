@@ -217,6 +217,8 @@ Resources:
     DeletionPolicy: Retain
     Condition: EnableVPCFlowLogsCond
     Properties:
+      VersioningConfiguration:
+        Status: Enabled
       BucketName: !Join
         - "-"
         - - "vpcflowlogs"
